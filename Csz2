@@ -1,0 +1,485 @@
+-- Exemplo de ESP Box para todos os jogadores (caso Character esteja acessível)
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+local drawings = {}
+local trackedPlayers = {}
+
+-- Função para converter posição 3D para 2D na tela
+local function WorldToViewportPoint(position)
+    local camera = workspace.CurrentCamera
+    local screenPos, onScreen = camera:WorldToViewportPoint(position)
+    return screenPos, onScreen
+end
+
+-- Função para desenhar uma caixa 3D (aproximação usando linhas)
+local function Get3DBoxPoints(hrp)
+    local size = Vector3.new(4, 7, 2)
+    local corners = {
+        Vector3.new(-size.X/2, -size.Y/2, -size.Z/2),
+        Vector3.new(size.X/2, -size.Y/2, -size.Z/2),
+        Vector3.new(size.X/2, size.Y/2, -size.Z/2),
+        Vector3.new(-size.X/2, size.Y/2, -size.Z/2),
+        Vector3.new(-size.X/2, -size.Y/2, size.Z/2),
+        Vector3.new(size.X/2, -size.Y/2, size.Z/2),
+        Vector3.new(size.X/2, size.Y/2, size.Z/2),
+        Vector3.new(-size.X/2, size.Y/2, size.Z/2),
+    }
+    local points = {}
+    for i, corner in ipairs(corners) do
+        local world = hrp.CFrame:PointToWorldSpace(corner)
+        local screen, onScreen = WorldToViewportPoint(world)
+        points[i] = {screen, onScreen}
+    end
+    return points
+end
+
+-- Cria/desenha linhas para a caixa 3D
+local function Update3DBoxLines(lines, points)
+    local edges = {
+        {1,2},{2,3},{3,4},{4,1},
+        {5,6},{6,7},{7,8},{8,5},
+        {1,5},{2,6},{3,7},{4,8}
+    }
+    for i, edge in ipairs(edges) do
+        local a, b = points[edge[1]], points[edge[2]]
+        if a[2] and b[2] then
+            lines[i].From = Vector2.new(a[1].X, a[1].Y)
+            lines[i].To = Vector2.new(b[1].X, b[1].Y)
+            lines[i].Visible = true
+        else
+            lines[i].Visible = false
+        end
+    end
+end
+
+-- Cria linhas se não existirem
+local function CreateBoxLines()
+    local lines = {}
+    for i = 1, 12 do
+        local line = Drawing.new("Line")
+        line.Color = Color3.fromRGB(255,0,0)
+        line.Thickness = 2
+        line.Visible = false
+        table.insert(lines, line)
+    end
+    return lines
+end
+
+-- Cria círculo se não existirA
+local function CreateHeadCircle()
+    local circle = Drawing.new("Circle")
+    circle.Color = Color3.fromRGB(255,0,0)
+    circle.Radius = 10
+    circle.Filled = true
+    circle.Visible = false
+    return circle
+end
+
+-- Adicione esta função para criar o texto do nome:
+local function CreateNameText()
+    local text = Drawing.new("Text")
+    text.Size = 18
+    text.Color = Color3.fromRGB(255,255,255)
+    text.Center = true
+    text.Outline = true
+    text.Visible = false
+    return text
+end
+
+-- Adicione esta função para criar o texto da distância:
+local function CreateDistanceText()
+    local text = Drawing.new("Text")
+    text.Size = 16
+    text.Color = Color3.fromRGB(0,255,255)
+    text.Center = true
+    text.Outline = true
+    text.Visible = false
+    return text
+end
+
+-- Função para verificar se o jogador é inimigo (baseado em Shirt ou BodyColors)
+local function isEnemy(player)
+    if not player.Character or not LocalPlayer.Character then return false end
+
+    -- Tenta pegar a Shirt dos dois jogadores
+    local myShirt = LocalPlayer.Character:FindFirstChildOfClass("Shirt")
+    local theirShirt = player.Character:FindFirstChildOfClass("Shirt")
+
+    if myShirt and theirShirt then
+        -- Compara o template da camisa (URL do asset)
+        return myShirt.ShirtTemplate ~= theirShirt.ShirtTemplate
+    end
+
+    -- Se não tiver Shirt, tenta comparar BodyColors (cor do torso)
+    local myBody = LocalPlayer.Character:FindFirstChildOfClass("BodyColors")
+    local theirBody = player.Character:FindFirstChildOfClass("BodyColors")
+    if myBody and theirBody then
+        return myBody.TorsoColor ~= theirBody.TorsoColor
+    end
+
+    -- Se não conseguir comparar, não mostra ESP
+    return false
+end
+
+-- Adicione este trecho antes de criar o ScreenGui para evitar múltiplos menus:
+if game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("ESPMenu") then
+    game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("ESPMenu"):Destroy()
+end
+
+-- Cria o ScreenGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "ESPMenu"
+gui.Parent = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer.PlayerGui
+gui.Enabled = true -- Mostra o menu ao iniciar
+
+-- Cria o Frame do menu
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 260, 0, 110)
+frame.Position = UDim2.new(0.5, -130, 0.5, -55) -- Centralizado (260x110)
+frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+frame.Parent = gui
+
+-- Barra superior cinza para o menu
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 32)
+topBar.Position = UDim2.new(0, 0, 0, 0)
+topBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+topBar.BorderSizePixel = 0
+topBar.Parent = frame
+
+-- Título "Zeek Menu"
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -60, 1, 0)
+titleLabel.Position = UDim2.new(0, 16, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "Zeek Menu"
+titleLabel.TextColor3 = Color3.new(1, 1, 1)
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextSize = 22
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = topBar
+
+-- Aumente o tamanho do menu para um quadrado simétrico maior:
+frame.Size = UDim2.new(0, 320, 0, 320)
+frame.Position = UDim2.new(0.5, -160, 0.5, -160)
+
+-- Ajuste a barra superior para acompanhar o novo tamanho:
+topBar.Size = UDim2.new(1, 0, 0, 40)
+titleLabel.TextSize = 26
+
+-- Defina as funções utilitárias primeiro (apenas UMA VEZ, ANTES de criar os checkboxes)
+local function createCheckbox(labelText, posY, default, globalName)
+    local box = Instance.new("TextButton")
+    box.Size = UDim2.new(0, 20, 0, 20)
+    box.Position = UDim2.new(0, 16, 0, posY)
+    box.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    box.TextColor3 = Color3.new(1,1,1)
+    box.Text = default and "[X]" or "[ ]"
+    box.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 120, 0, 20)
+    label.Position = UDim2.new(0, 46, 0, posY)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1,1,1)
+    label.Text = labelText
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 18
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    -- Clique ativa/desativa a opção global correspondente
+    if globalName then
+        box.MouseButton1Click:Connect(function()
+            getgenv()[globalName] = not getgenv()[globalName]
+            box.Text = getgenv()[globalName] and "[X]" or "[ ]"
+        end)
+    end
+
+    return box, label
+end
+
+local function createCheckboxRight(labelText, posY, default, globalName)
+    local box = Instance.new("TextButton")
+    box.Size = UDim2.new(0, 20, 0, 20)
+    box.Position = UDim2.new(0, 200, 0, posY)
+    box.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    box.TextColor3 = Color3.new(1,1,1)
+    box.Text = default and "[X]" or "[ ]"
+    box.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 100, 0, 20)
+    label.Position = UDim2.new(0, 230, 0, posY)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1,1,1)
+    label.Text = labelText
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 18
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    if globalName then
+        box.MouseButton1Click:Connect(function()
+            getgenv()[globalName] = not getgenv()[globalName]
+            box.Text = getgenv()[globalName] and "[X]" or "[ ]"
+        end)
+    end
+
+    return box, label
+end
+
+-- Crie os checkboxes com o nome global correspondente:
+local startY = 50
+local spacing = 40
+local espCheckbox, espLabel = createCheckbox("ESP", startY, false, "ESPEnabled")
+local boxCheckbox, boxLabel = createCheckbox("Box", startY + spacing, false, "ESPBox")
+local nameCheckbox, nameLabel = createCheckbox("Name", startY + spacing * 2, false, "ESPName")
+local distCheckbox, distLabel = createCheckbox("Distance", startY + spacing * 3, false, "ESPDistance")
+local headCheckbox, headLabel = createCheckbox("HeadHitbox", startY + spacing * 4, false, "ESPHead")
+
+-- Adicione esta linha para o checkbox do AIMBOT do lado direito:
+local aimbotCheckbox, aimbotLabel = createCheckboxRight("Aimbot", startY, false, "AimbotEnabled")
+
+-- Linha vertical
+local verticalLine = Instance.new("Frame")
+verticalLine.Size = UDim2.new(0, 2, 0, spacing * 5 + 10)
+verticalLine.Position = UDim2.new(0, 180, 0, startY - 5)
+verticalLine.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+verticalLine.BorderSizePixel = 0
+verticalLine.Parent = frame
+
+-- Estados globais para as opções (desmarcados por padrão)
+getgenv().ESPBox = false
+getgenv().ESPName = false
+getgenv().ESPDistance = false
+getgenv().ESPHead = false
+getgenv().ESPEnabled = false
+
+-- Toggle menu com Shift DIREITO
+game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.RightShift then
+        gui.Enabled = not gui.Enabled
+    end
+end)
+
+-- Atualiza lista de jogadores a cada 1 segundo
+task.spawn(function()
+    while true do
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and not trackedPlayers[player] and isEnemy(player) then
+                -- Adicione ao trackedPlayers:
+                trackedPlayers[player] = {
+                    boxLines = CreateBoxLines(),
+                    headCircle = CreateHeadCircle(),
+                    nameText = CreateNameText(),
+                    distanceText = CreateDistanceText(), -- NOVO
+                }
+            end
+        end
+        -- Remove jogadores que saíram
+        for player, objs in pairs(trackedPlayers) do
+            if not Players:FindFirstChild(player.Name) then
+                for _, l in ipairs(objs.boxLines) do l:Remove() end
+                objs.headCircle:Remove()
+                trackedPlayers[player] = nil
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- Atualiza ESP a cada frame
+RunService.RenderStepped:Connect(function()
+    if getgenv().ESPEnabled then
+        for player, objs in pairs(trackedPlayers) do
+            if isEnemy(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Head") then
+                local char = player.Character
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local head = char:FindFirstChild("Head")
+                local points = Get3DBoxPoints(hrp)
+                -- Box
+                if getgenv().ESPBox then
+                    Update3DBoxLines(objs.boxLines, points)
+                else
+                    for _, l in ipairs(objs.boxLines) do l.Visible = false end
+                end
+                -- Head hitbox
+                local camera = workspace.CurrentCamera
+                local headPos, onScreen = camera:WorldToViewportPoint(head.Position)
+                local distance = (camera.CFrame.Position - head.Position).Magnitude
+                local scale = math.clamp(60 / distance, 6, 18)
+                if getgenv().ESPHead and onScreen then
+                    objs.headCircle.Position = Vector2.new(headPos.X, headPos.Y)
+                    objs.headCircle.Radius = scale
+                    objs.headCircle.Visible = true
+                else
+                    objs.headCircle.Visible = false
+                end
+                -- Name
+                if getgenv().ESPName and onScreen then
+                    objs.nameText.Position = Vector2.new(headPos.X, headPos.Y - 25)
+                    objs.nameText.Text = player.Name
+                    objs.nameText.Visible = true
+                else
+                    objs.nameText.Visible = false
+                end
+                -- Distance
+                local minY, maxY = math.huge, -math.huge
+                local minX, maxX = math.huge, -math.huge
+                for _, pt in ipairs(points) do
+                    if pt[2] then
+                        minY = math.min(minY, pt[1].Y)
+                        maxY = math.max(maxY, pt[1].Y)
+                        minX = math.min(minX, pt[1].X)
+                        maxX = math.max(maxX, pt[1].X)
+                    end
+                end
+                if getgenv().ESPDistance and onScreen then
+                    objs.distanceText.Position = Vector2.new((minX + maxX)/2, maxY + 10)
+                    objs.distanceText.Text = string.format("%.1f m", distance / 20)
+                    objs.distanceText.Visible = true
+                else
+                    objs.distanceText.Visible = false
+                end
+            else
+                for _, l in ipairs(objs.boxLines) do l.Visible = false end
+                objs.headCircle.Visible = false
+                objs.nameText.Visible = false
+                objs.distanceText.Visible = false
+            end
+        end
+    else
+        for player, objs in pairs(trackedPlayers) do
+            for _, l in ipairs(objs.boxLines) do l.Visible = false end
+            objs.headCircle.Visible = false
+            objs.nameText.Visible = false
+            objs.distanceText.Visible = false
+        end
+    end
+end)
+
+local function CreateHighlight(character)
+    local hl = Instance.new("Highlight")
+    hl.Adornee = character
+    hl.FillColor = Color3.fromRGB(255, 0, 0)
+    hl.OutlineColor = Color3.fromRGB(0, 0, 0)
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0
+    hl.Parent = character -- O parent deve ser o próprio personagem/modelo!
+    return hl
+end
+
+-- Cria uma "setinha" para arrastar
+local dragButton = Instance.new("TextButton")
+dragButton.Size = UDim2.new(0, 32, 0, 20)
+dragButton.Position = UDim2.new(1, -38, 0, 6)
+dragButton.BackgroundColor3 = Color3.fromRGB(50,50,50)
+dragButton.Text = "↔"
+dragButton.TextColor3 = Color3.new(1,1,1)
+dragButton.Font = Enum.Font.SourceSansBold
+dragButton.TextSize = 18
+dragButton.Parent = topBar
+
+-- Centraliza o menu usando Offset (mais fácil de arrastar)
+frame.Position = UDim2.new(0, (workspace.CurrentCamera.ViewportSize.X/2)-100, 0, (workspace.CurrentCamera.ViewportSize.Y/2)-40)
+
+-- Drag intuitivo para o menu
+local UserInputService = game:GetService("UserInputService")
+local dragging = false
+local dragOffset = Vector2.new(0, 0)
+
+dragButton.MouseButton1Down:Connect(function(input)
+    dragging = true
+    local mousePos = UserInputService:GetMouseLocation()
+    -- Corrige para o topo da janela do Roblox Studio
+    mousePos = Vector2.new(mousePos.X, mousePos.Y - 36)
+    dragOffset = mousePos - Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local mousePos = UserInputService:GetMouseLocation()
+        mousePos = Vector2.new(mousePos.X, mousePos.Y - 36)
+        local newPos = mousePos - dragOffset
+        frame.Position = UDim2.new(0, newPos.X, 0, newPos.Y)
+    end
+end)
+
+-- AIMBOT CONFIG
+local FOV_RADIUS = 120
+local FOV_COLOR = Color3.fromRGB(0, 255, 0)
+local AIM_SMOOTHNESS = 0.2
+
+-- Desenhar círculo FOV
+local Drawing = Drawing or getgenv().Drawing
+local Camera = workspace.CurrentCamera
+local fovCircle = Drawing.new("Circle")
+fovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+fovCircle.Radius = FOV_RADIUS
+fovCircle.Color = FOV_COLOR
+fovCircle.Thickness = 2
+fovCircle.Filled = false
+fovCircle.Visible = false -- Só aparece se aimbot ativado
+
+-- Função para encontrar o player mais próximo do centro da tela dentro do FOV
+local function getClosestPlayerToCenter()
+    local closestPlayer = nil
+    local shortestDistance = FOV_RADIUS
+    local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local headPos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+            if onScreen then
+                local headScreenPos = Vector2.new(headPos.X, headPos.Y)
+                local distance = (screenCenter - headScreenPos).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+-- Função para mirar na cabeça
+local function aimAt(target)
+    if not target or not target.Character or not target.Character:FindFirstChild("Head") then return end
+    local headPos = target.Character.Head.Position
+    local camPos = Camera.CFrame.Position
+    local direction = (headPos - camPos).Unit
+    local newCFrame = CFrame.new(camPos, camPos + direction)
+    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, AIM_SMOOTHNESS)
+end
+
+-- Tecla de ativação do aimbot (padrão: MouseButton2)
+getgenv().AimbotKey = getgenv().AimbotKey or Enum.UserInputType.MouseButton2
+
+-- Loop principal do aimbot
+RunService.RenderStepped:Connect(function()
+    -- Só ativa se a opção Aimbot estiver marcada
+    if getgenv().AimbotEnabled then
+        fovCircle.Visible = true
+        fovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+        -- Checa se a tecla está pressionada
+        if UserInputService:IsMouseButtonPressed(getgenv().AimbotKey) or (typeof(getgenv().AimbotKey) == "EnumItem" and UserInputService:IsKeyDown(getgenv().AimbotKey)) then
+            local target = getClosestPlayerToCenter()
+            if target then
+                aimAt(target)
+            end
+        end
+    else
+        fovCircle.Visible = false
+    end
+end)
